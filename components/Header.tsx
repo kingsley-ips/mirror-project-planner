@@ -40,11 +40,12 @@ export default function Header() {
             <Link
               key={href}
               href={href}
-              className="text-sm hover:text-white"
-              style={{
-                color: active ? 'var(--spring)' : 'rgba(255,255,255,0.8)',
-                fontWeight: active ? 600 : 400,
-              }}
+              className="text-sm px-4 py-1.5 rounded-full transition-colors"
+              style={
+                active
+                  ? { backgroundColor: 'var(--spring)', color: 'var(--pine-dark)', fontWeight: 600 }
+                  : { color: 'rgba(255,255,255,0.8)', fontWeight: 400 }
+              }
             >
               {label}
             </Link>
