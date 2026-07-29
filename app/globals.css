@@ -1,26 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
+/* ── IP Brand tokens (matches ip-toolbox-platform) ──────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Primary palette */
+  --pine:      #1D6D78;
+  --pine-dark: #155560;
+  --spring:    #B3E372;
+  --bluestem:  #62CFB3;
+
+  /* Surfaces */
+  --bg:        #F8FAFC;
+  --surface:   #FFFFFF;
+  --border:    #E2E8F0;
+  --border-subtle: #F1F5F9;
+
+  /* Typography */
+  --text:      #0F172A;
+  --muted:     #475569;
+  --faint:     #94A3B8;
+
+  /* SLA stoplight status */
+  --status-ontrack-bg:   #DCFCE7;
+  --status-ontrack-text: #166534;
+  --status-ontrack-dot:  #22C55E;
+  --status-atrisk-bg:    #FEF9C3;
+  --status-atrisk-text:  #854D0E;
+  --status-atrisk-dot:   #EAB308;
+  --status-overdue-bg:   #FEE2E2;
+  --status-overdue-text: #991B1B;
+  --status-overdue-dot:  #EF4444;
+
+  /* Fonts */
+  --font-heading: 'Visby CF', 'Plus Jakarta Sans', sans-serif;
+  --font-body:    'Roboto Slab', Georgia, serif;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-pine:     var(--pine);
+  --color-spring:   var(--spring);
+  --color-bluestem: var(--bluestem);
+  --font-heading:   var(--font-heading);
+  --font-body:      var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ── Resets ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+}
+
+/* Hide scrollbar but keep scroll behaviour */
+.scrollbar-hide { scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* Form fields */
+.input {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  background-color: var(--surface);
+  color: var(--text);
+}
+.input:focus {
+  outline: 2px solid var(--pine);
+  outline-offset: -1px;
 }
