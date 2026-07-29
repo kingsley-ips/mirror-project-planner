@@ -9,6 +9,14 @@ proves out.
 
 **Stack:** Next.js 16 (App Router) · TypeScript · Tailwind v4 · Supabase (Postgres) · Vercel
 
+**⚠️ LIVE AND PUBLIC — READ THIS:** deployed at https://mirror.solarips.com
+(and https://mirror-project-planner.vercel.app) with **no login and no
+Cloudflare Access gate**. Cloudflare Access setup was started but
+deliberately paused (see "Deployment" section below) — anyone with either
+URL can currently read and write every project, task, budget, and email
+in the shared database. Finish Cloudflare Access or build real in-app
+auth before treating this as anything other than an active, live risk.
+
 ## Phase 1 scope (this build)
 
 - Project list with stage tracker (Sales → Design → Permitting/Utility →
@@ -129,6 +137,29 @@ npm run dev
 
 Open http://localhost:3000 (or whatever port is free — see note below).
 
+## Deployment
+
+Live in production on Vercel (team `independent-power`, project
+`mirror-project-planner`):
+- https://mirror.solarips.com (custom domain, Cloudflare A record →
+  `76.76.21.21`, proxied)
+- https://mirror-project-planner.vercel.app (default Vercel domain)
+
+Source is on GitHub at `github.com/kingsley-ips/mirror-project-planner`
+(personal account — the original plan was the `Independent-Power` org;
+easy to transfer later via GitHub's repo settings if wanted).
+
+Production env vars (Supabase, Resend, cron secret, site URL) are set
+directly in the Vercel project settings — same values as `.env.local`.
+
+**Cloudflare Access was started but not finished.** The plan was a
+Self-hosted Access application on `mirror.solarips.com` restricting
+sign-in to `@solarips.com` emails, matching how `ip-toolbox-platform`
+gates `toolbox.solarips.com`. Zero Trust's free tier needed a card on
+file for verification; the user chose to skip that for now rather than
+enter one. **Until Access is finished (or real in-app auth exists),
+this URL is genuinely public with no access control at all.**
+
 ## Data model & database
 
 `lib/types.ts` defines `Project`, `Task`, `Person`. The matching Postgres
@@ -140,8 +171,9 @@ credentials are in `.env.local` (gitignored, not committed).
 All reads/writes go through `lib/db.ts`, using the Supabase **service role**
 key server-side only (`lib/supabase/server.ts`, guarded by `server-only`).
 Server actions live in `app/actions.ts`. There's no RLS policy enforcement
-yet because there's no user auth — that has to happen before this is
-exposed outside a trusted local/internal network.
+because there's no user auth — this is already live in production
+without either (see "Deployment" above), which is a real, current risk,
+not a someday-concern.
 
 SLA status logic (green/yellow/red) is in `lib/sla.ts` — currently: overdue
 if past due date, "at risk" within 2 days of due, on track otherwise. This
