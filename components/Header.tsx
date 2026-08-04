@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { href: '/my-tasks', label: 'My Tasks' },
   { href: '/tasks', label: 'All Tasks' },
   { href: '/people', label: 'People' },
+  { href: '/vendors', label: 'Vendors' },
 ]
 
 export default function Header() {

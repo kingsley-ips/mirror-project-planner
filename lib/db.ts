@@ -1,6 +1,9 @@
 import 'server-only'
 import { supabaseServer } from './supabase/server'
-import type { DailyLog, EmailTag, Person, Project, ProjectBudget, ProjectContact, ProjectEmail, ProjectExpense, ProjectStage, ProjectStageHistory, Task, TaskCategory, TaskStatus, TimeEntry, TimeEntryCategory } from './types'
+import type { DailyLog, EmailTag, Person, Project, ProjectBudget, ProjectContact, ProjectEmail, ProjectExpense, ProjectStage, ProjectStageHistory, Task, TaskCategory, TaskStatus, TimeEntry, TimeEntryCategory, Vendor } from './types'
+import { SLA_RULES } from './slaRules'
+import { TASK_TEMPLATES } from './taskTemplates'
+import { fetchSalesforceIpsProjects } from './salesforce'
 
 type PersonRow = { id: string; name: string; email: string; team: Person['team'] }
 type ProjectRow = {
@@ -47,10 +50,16 @@ type ProjectBudgetRow = {
   updated_at: string
 }
 
+type VendorRow = {
+  id: string; name: string; trade: string | null
+  phone: string | null; email: string | null; notes: string | null
+}
+
 type ProjectExpenseRow = {
-  id: string; project_id: string; vendor_name: string; amount: string
+  id: string; project_id: string; amount: string
   description: string | null; invoice_date: string | null; created_at: string
   people: PersonRow | null
+  vendors: VendorRow
 }
 
 type ProjectContactRow = {
@@ -156,11 +165,22 @@ function toProjectBudget(row: ProjectBudgetRow): ProjectBudget {
   }
 }
 
+function toVendor(row: VendorRow): Vendor {
+  return {
+    id: row.id,
+    name: row.name,
+    trade: row.trade,
+    phone: row.phone,
+    email: row.email,
+    notes: row.notes,
+  }
+}
+
 function toProjectExpense(row: ProjectExpenseRow): ProjectExpense {
   return {
     id: row.id,
     projectId: row.project_id,
-    vendorName: row.vendor_name,
+    vendor: toVendor(row.vendors),
     amount: Number(row.amount),
     description: row.description,
     invoiceDate: row.invoice_date,
@@ -199,12 +219,15 @@ function toTimeEntry(row: TimeEntryRow): TimeEntry {
 // One query, batched: for every id in taskIds, how many direct subtasks it
 // has and how many of those aren't done yet. Used to compute whether a
 // task is "blocked" (can't move to in_progress/done until subtasks finish).
-async function getSubtaskStatsMap(taskIds: string[]): Promise<Map<string, SubtaskStats>> {
+// Deliberately unscoped — a `.in('parent_task_id', taskIds)` filter with
+// hundreds of ids (every task across every project, once Salesforce sync
+// populated dozens of projects) builds a URL long enough for Supabase's
+// gateway to reject as a 400. A full-table scan of two narrow columns is
+// cheap and has no such ceiling, so every caller uses this instead.
+async function getSubtaskStatsForAll(): Promise<Map<string, SubtaskStats>> {
   const map = new Map<string, SubtaskStats>()
-  if (taskIds.length === 0) return map
-
   const db = supabaseServer()
-  const { data, error } = await db.from('tasks').select('parent_task_id, status').in('parent_task_id', taskIds)
+  const { data, error } = await db.from('tasks').select('parent_task_id, status').not('parent_task_id', 'is', null)
   if (error) throw error
 
   for (const row of data as { parent_task_id: string; status: TaskStatus }[]) {
@@ -237,7 +260,7 @@ export async function getTaskById(id: string): Promise<Task | null> {
   const { data, error } = await db.from('tasks').select(TASK_SELECT).eq('id', id).maybeSingle()
   if (error) throw error
   if (!data) return null
-  const stats = await getSubtaskStatsMap([id])
+  const stats = await getSubtaskStatsForAll()
   return toTask(data as TaskRow, stats.get(id))
 }
 
@@ -253,7 +276,7 @@ export async function getTasksForProject(projectId: string): Promise<Task[]> {
     .order('due_date', { ascending: true, nullsFirst: false })
   if (error) throw error
   const rows = data as TaskRow[]
-  const statsMap = await getSubtaskStatsMap(rows.map((r) => r.id))
+  const statsMap = await getSubtaskStatsForAll()
   return rows.map((row) => toTask(row, statsMap.get(row.id)))
 }
 
@@ -270,7 +293,7 @@ export async function getAllTasksFlat(): Promise<TaskWithProject[]> {
   const { data, error } = await db.from('tasks').select(`${TASK_SELECT}, projects(*)`)
   if (error) throw error
   const rows = (data as ReminderTaskRow[]).filter((row) => row.projects !== null)
-  const statsMap = await getSubtaskStatsMap(rows.map((r) => r.id))
+  const statsMap = await getSubtaskStatsForAll()
   return rows.map((row) => ({
     task: toTask(row, statsMap.get(row.id)),
     project: toProject(row.projects!),
@@ -304,7 +327,7 @@ export async function getTasksForPerson(personId: string): Promise<PersonTask[]>
     .map((r) => r.tasks)
     .filter((t): t is ReminderTaskRow => t !== null && t.projects !== null)
 
-  const statsMap = await getSubtaskStatsMap(rows.map((r) => r.id))
+  const statsMap = await getSubtaskStatsForAll()
   const results = rows.map((row) => ({
     task: toTask(row, statsMap.get(row.id)),
     project: toProject(row.projects!),
@@ -375,6 +398,7 @@ export async function createProject(input: {
   projectedInstallDate: string | null
   googleDriveFolderUrl: string | null
   googlePhotosFolderUrl: string | null
+  salesforceId?: string | null
 }): Promise<string> {
   const db = supabaseServer()
   const { data, error } = await db
@@ -387,6 +411,7 @@ export async function createProject(input: {
       projected_install_date: input.projectedInstallDate,
       google_drive_folder_url: input.googleDriveFolderUrl,
       google_photos_folder_url: input.googlePhotosFolderUrl,
+      salesforce_id: input.salesforceId ?? null,
     })
     .select('id')
     .single()
@@ -397,7 +422,36 @@ export async function createProject(input: {
     .insert({ project_id: data.id, stage: input.stage })
   if (historyError) throw historyError
 
+  // Per the doc's own framing, every project gets the full required
+  // checklist the moment it exists — not gated behind a manual click.
+  await applyStandardChecklist(data.id)
+
   return data.id
+}
+
+export async function applyStandardChecklist(projectId: string): Promise<void> {
+  const existing = await getTasksForProject(projectId)
+  const existingTitles = new Set(existing.map((t) => t.title))
+  const missing = TASK_TEMPLATES.filter((t) => !existingTitles.has(t.title))
+  if (missing.length === 0) return
+
+  // One bulk insert instead of one round trip per template — matters
+  // once something (like the Salesforce sync) creates many projects in
+  // a single request, each needing all ~38 checklist tasks at once.
+  const db = supabaseServer()
+  const { error } = await db.from('tasks').insert(
+    missing.map((t) => ({
+      project_id: projectId,
+      title: t.title,
+      category: t.category,
+      due_date: null,
+      sla_days: null,
+      parent_task_id: null,
+    }))
+  )
+  if (error) throw error
+
+  await recomputeTaskDueDates(projectId)
 }
 
 export async function updateProjectStage(id: string, stage: ProjectStage): Promise<void> {
@@ -409,6 +463,139 @@ export async function updateProjectStage(id: string, stage: ProjectStage): Promi
     .from('project_stage_history')
     .insert({ project_id: id, stage })
   if (historyError) throw historyError
+}
+
+export interface ProjectUpdateInput {
+  name: string
+  customerName: string
+  soldInstallDate: string | null
+  projectedInstallDate: string | null
+  googleDriveFolderUrl: string | null
+  googlePhotosFolderUrl: string | null
+}
+
+// Editing sold/projected install date is the trigger for "if the SLA
+// date is adjusted, it changes all future dates" — callers must follow
+// this with recomputeTaskDueDates(id).
+export async function updateProject(id: string, input: ProjectUpdateInput): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db
+    .from('projects')
+    .update({
+      name: input.name,
+      customer_name: input.customerName,
+      sold_install_date: input.soldInstallDate,
+      projected_install_date: input.projectedInstallDate,
+      google_drive_folder_url: input.googleDriveFolderUrl,
+      google_photos_folder_url: input.googlePhotosFolderUrl,
+    })
+    .eq('id', id)
+  if (error) throw error
+}
+
+// IPS_Project__c only ever has an "active, sold" record — Salesforce
+// separates the open-pipeline story into Opportunity/Lead. So every
+// record found here is meant to exist in Mirror; there's no stage
+// filter for "is this sold yet." Intake and Site Audit both collapse
+// into Mirror's single "Sales" stage since Mirror doesn't split them.
+const SALESFORCE_STAGE_MAP: Record<string, ProjectStage> = {
+  'Intake': 'Sales',
+  'Site Audit': 'Sales',
+  'Design': 'Design',
+  'Permitting/Utility': 'Permitting/Utility',
+  'Construction': 'Construction',
+  'Final Deliverables': 'Final Deliverables',
+  'Complete': 'Complete',
+  'On Hold': 'On Hold',
+}
+
+type SyncedProjectRow = {
+  id: string; name: string; customer_name: string; stage: ProjectStage
+  sold_install_date: string | null; projected_install_date: string | null
+  google_drive_folder_url: string | null; google_photos_folder_url: string | null
+  salesforce_id: string
+}
+
+export interface SalesforceSyncResult {
+  created: number
+  updated: number
+  unchanged: number
+  total: number
+  pendingCreate: number
+}
+
+// New projects are the expensive path (project row + ~38 checklist tasks
+// + due-date recompute), so a large backlog is capped per run and drains
+// over successive 15-minute cron ticks instead of risking a serverless
+// timeout. Updates to already-linked projects are cheap and uncapped.
+const MAX_CREATES_PER_RUN = 12
+
+export async function syncSalesforceProjects(): Promise<SalesforceSyncResult> {
+  const [sfProjects, db] = [await fetchSalesforceIpsProjects(), supabaseServer()]
+
+  const { data: existingRows, error } = await db
+    .from('projects')
+    .select('id, name, customer_name, stage, sold_install_date, projected_install_date, google_drive_folder_url, google_photos_folder_url, salesforce_id')
+    .not('salesforce_id', 'is', null)
+  if (error) throw error
+
+  const bySalesforceId = new Map((existingRows as SyncedProjectRow[]).map((r) => [r.salesforce_id, r]))
+
+  let created = 0
+  let updated = 0
+  let unchanged = 0
+  let pendingCreate = 0
+
+  for (const sf of sfProjects) {
+    const customerName = sf.accountName ?? sf.name
+    const mappedStage = sf.stage ? SALESFORCE_STAGE_MAP[sf.stage] : undefined
+    const existing = bySalesforceId.get(sf.id)
+
+    if (!existing) {
+      if (created >= MAX_CREATES_PER_RUN) {
+        pendingCreate++
+        continue
+      }
+      await createProject({
+        name: sf.name,
+        customerName,
+        stage: mappedStage ?? 'Sales',
+        soldInstallDate: sf.contractSignedDate,
+        projectedInstallDate: sf.estimatedInstallDate,
+        googleDriveFolderUrl: null,
+        googlePhotosFolderUrl: null,
+        salesforceId: sf.id,
+      })
+      created++
+      continue
+    }
+
+    const fieldsChanged =
+      existing.name !== sf.name ||
+      existing.customer_name !== customerName ||
+      existing.sold_install_date !== sf.contractSignedDate ||
+      existing.projected_install_date !== sf.estimatedInstallDate
+    const stageChanged = mappedStage !== undefined && mappedStage !== existing.stage
+
+    if (fieldsChanged) {
+      await updateProject(existing.id, {
+        name: sf.name,
+        customerName,
+        soldInstallDate: sf.contractSignedDate,
+        projectedInstallDate: sf.estimatedInstallDate,
+        googleDriveFolderUrl: existing.google_drive_folder_url,
+        googlePhotosFolderUrl: existing.google_photos_folder_url,
+      })
+      await recomputeTaskDueDates(existing.id)
+    }
+    if (stageChanged) {
+      await updateProjectStage(existing.id, mappedStage as ProjectStage)
+    }
+    if (fieldsChanged || stageChanged) updated++
+    else unchanged++
+  }
+
+  return { created, updated, unchanged, total: sfProjects.length, pendingCreate }
 }
 
 export async function getStageHistoryForProject(projectId: string): Promise<ProjectStageHistory[]> {
@@ -436,6 +623,14 @@ async function setTaskAssignees(taskId: string, personIds: string[]): Promise<vo
     .from('task_assignees')
     .insert(personIds.map((personId) => ({ task_id: taskId, person_id: personId })))
   if (insertError) throw insertError
+
+  // "Electrical Review: 5 days once assigned" needs to know the FIRST
+  // time a task got an assignee — set once, never overwritten by a
+  // later reassignment.
+  const { data: current } = await db.from('tasks').select('first_assigned_at').eq('id', taskId).single()
+  if (current && !current.first_assigned_at) {
+    await db.from('tasks').update({ first_assigned_at: new Date().toISOString() }).eq('id', taskId)
+  }
 }
 
 export async function createTask(input: {
@@ -515,7 +710,7 @@ export async function getOpenTasksForReminderCheck(): Promise<ReminderCandidate[
   if (error) throw error
 
   const rows = (data as ReminderTaskRow[]).filter((row) => row.projects !== null)
-  const statsMap = await getSubtaskStatsMap(rows.map((r) => r.id))
+  const statsMap = await getSubtaskStatsForAll()
   return rows.map((row) => ({
     task: toTask(row, statsMap.get(row.id)),
     project: toProject(row.projects!),
@@ -750,7 +945,7 @@ export async function getAllProjectBudgets(): Promise<Record<string, ProjectBudg
   return byProject
 }
 
-const PROJECT_EXPENSE_SELECT = '*, people(*)'
+const PROJECT_EXPENSE_SELECT = '*, people(*), vendors(*)'
 
 export async function getProjectExpenses(projectId: string): Promise<ProjectExpense[]> {
   const db = supabaseServer()
@@ -778,15 +973,8 @@ export async function getAllProjectExpenses(): Promise<Record<string, ProjectExp
   return byProject
 }
 
-export async function getVendorNameSuggestions(): Promise<string[]> {
-  const db = supabaseServer()
-  const { data, error } = await db.from('project_expenses').select('vendor_name')
-  if (error) throw error
-  return Array.from(new Set((data as { vendor_name: string }[]).map((r) => r.vendor_name))).sort()
-}
-
 export interface ProjectExpenseInput {
-  vendorName: string
+  vendorId: string
   amount: number
   description: string | null
   invoiceDate: string | null
@@ -799,7 +987,7 @@ export async function createProjectExpense(projectId: string, input: ProjectExpe
     .from('project_expenses')
     .insert({
       project_id: projectId,
-      vendor_name: input.vendorName,
+      vendor_id: input.vendorId,
       amount: input.amount,
       description: input.description,
       invoice_date: input.invoiceDate,
@@ -809,6 +997,47 @@ export async function createProjectExpense(projectId: string, input: ProjectExpe
     .single()
   if (error) throw error
   return data.id
+}
+
+export async function getVendors(): Promise<Vendor[]> {
+  const db = supabaseServer()
+  const { data, error } = await db.from('vendors').select('*').order('name')
+  if (error) throw error
+  return (data as VendorRow[]).map(toVendor)
+}
+
+export interface VendorInput {
+  name: string
+  trade: string | null
+  phone: string | null
+  email: string | null
+  notes: string | null
+}
+
+export async function createVendor(input: VendorInput): Promise<string> {
+  const db = supabaseServer()
+  const { data, error } = await db
+    .from('vendors')
+    .insert({ name: input.name, trade: input.trade, phone: input.phone, email: input.email, notes: input.notes })
+    .select('id')
+    .single()
+  if (error) throw error
+  return data.id
+}
+
+export async function updateVendor(id: string, input: VendorInput): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db
+    .from('vendors')
+    .update({ name: input.name, trade: input.trade, phone: input.phone, email: input.email, notes: input.notes })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteVendor(id: string): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db.from('vendors').delete().eq('id', id)
+  if (error) throw error
 }
 
 export async function getProjectContacts(projectId: string): Promise<ProjectContact[]> {
@@ -910,4 +1139,49 @@ export async function createTimeEntry(projectId: string, input: TimeEntryInput):
     .single()
   if (error) throw error
   return data.id
+}
+
+function addDays(isoDate: string, offsetDays: number): string {
+  const date = new Date(isoDate)
+  date.setUTCDate(date.getUTCDate() + offsetDays)
+  return date.toISOString().slice(0, 10)
+}
+
+// The actual "cascading" in "auto-cascading SLA dates": re-derives every
+// rule-driven task's due_date from its anchor (a project field, another
+// task's completion, or this task's first-assigned timestamp) and writes
+// back only what changed. Call after anything that could move an
+// anchor: project date edits, a task being marked done, or a task
+// getting its first assignee.
+export async function recomputeTaskDueDates(projectId: string): Promise<void> {
+  const db = supabaseServer()
+  const [{ data: projectRow, error: projErr }, { data: taskRows, error: taskErr }] = await Promise.all([
+    db.from('projects').select('sold_install_date, projected_install_date').eq('id', projectId).single(),
+    db.from('tasks').select('id, title, due_date, completed_at, first_assigned_at').eq('project_id', projectId),
+  ])
+  if (projErr) throw projErr
+  if (taskErr) throw taskErr
+
+  type RuleTaskRow = { id: string; title: string; due_date: string | null; completed_at: string | null; first_assigned_at: string | null }
+  const rows = taskRows as RuleTaskRow[]
+  const byTitle = new Map(rows.map((r) => [r.title, r]))
+
+  for (const row of rows) {
+    const rule = SLA_RULES[row.title]
+    if (!rule) continue
+
+    let anchor: string | null = null
+    if (rule.anchor.type === 'sold_install_date') anchor = projectRow.sold_install_date
+    else if (rule.anchor.type === 'projected_install_date') anchor = projectRow.projected_install_date
+    else if (rule.anchor.type === 'task_completed') anchor = byTitle.get(rule.anchor.taskTitle)?.completed_at ?? null
+    else if (rule.anchor.type === 'first_assigned') anchor = row.first_assigned_at
+
+    if (!anchor) continue
+
+    const newDueDate = addDays(anchor, rule.offsetDays)
+    if (row.due_date !== newDueDate) {
+      const { error } = await db.from('tasks').update({ due_date: newDueDate }).eq('id', row.id)
+      if (error) throw error
+    }
+  }
 }

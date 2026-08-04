@@ -6,7 +6,6 @@ import { cookies } from 'next/headers'
 import * as db from '@/lib/db'
 import { ACTIVE_PERSON_COOKIE, getActivePersonId } from '@/lib/activePerson'
 import { sendTaskAssignedEmail } from '@/lib/email'
-import { TASK_TEMPLATES } from '@/lib/taskTemplates'
 import { EMAIL_TAGS, isTaskBlocked, PROJECT_STAGES, TIME_ENTRY_CATEGORIES, type EmailTag, type Person, type ProjectStage, type TaskCategory, type TaskStatus, type TimeEntryCategory } from '@/lib/types'
 
 const TASK_CATEGORIES: TaskCategory[] = [
@@ -44,6 +43,29 @@ export async function updateProjectStageAction(projectId: string, formData: Form
   revalidatePath(`/projects/${projectId}`)
 }
 
+// "If SLA date is adjusted it changes all future dates" — editing the
+// sold/projected install date is the actual trigger for cascading
+// recalculation, so this recomputes every rule-driven task afterward.
+export async function updateProjectAction(projectId: string, formData: FormData) {
+  const name = String(formData.get('name') ?? '').trim()
+  const customerName = String(formData.get('customerName') ?? '').trim()
+  const soldInstallDate = (formData.get('soldInstallDate') as string) || null
+  const projectedInstallDate = (formData.get('projectedInstallDate') as string) || null
+  const googleDriveFolderUrl = (formData.get('googleDriveFolderUrl') as string) || null
+  const googlePhotosFolderUrl = (formData.get('googlePhotosFolderUrl') as string) || null
+
+  if (!name || !customerName) throw new Error('Project name and customer name are required')
+
+  await db.updateProject(projectId, {
+    name, customerName, soldInstallDate, projectedInstallDate, googleDriveFolderUrl, googlePhotosFolderUrl,
+  })
+  await db.recomputeTaskDueDates(projectId)
+
+  revalidatePath('/')
+  revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/gantt`)
+}
+
 async function notifyNewAssignees(taskId: string, projectId: string, newAssigneeIds: string[]) {
   if (newAssigneeIds.length === 0) return
   const [project, task] = await Promise.all([db.getProjectById(projectId), db.getTaskById(taskId)])
@@ -69,10 +91,12 @@ export async function createTaskAction(projectId: string, formData: FormData) {
 
   const taskId = await db.createTask({ projectId, title, category, assigneeIds, dueDate, slaDays, parentTaskId })
   await notifyNewAssignees(taskId, projectId, assigneeIds)
+  await db.recomputeTaskDueDates(projectId)
 
   revalidatePath('/')
   revalidatePath('/tasks')
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/gantt`)
 }
 
 export async function updateTaskAction(projectId: string, taskId: string, formData: FormData) {
@@ -92,11 +116,13 @@ export async function updateTaskAction(projectId: string, taskId: string, formDa
   const beforeIds = new Set((before?.assignees ?? []).map((p) => p.id))
   const newlyAdded = assigneeIds.filter((id) => !beforeIds.has(id))
   await notifyNewAssignees(taskId, projectId, newlyAdded)
+  await db.recomputeTaskDueDates(projectId)
 
   revalidatePath('/')
   revalidatePath('/tasks')
   revalidatePath('/my-tasks')
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/gantt`)
 }
 
 export async function updateTaskStatusAction(projectId: string, formData: FormData) {
@@ -115,9 +141,14 @@ export async function updateTaskStatusAction(projectId: string, formData: FormDa
   }
 
   await db.updateTaskStatus(taskId, status)
+  // A task being marked done can be the anchor for another task's rule
+  // (e.g. Site Audit Report depends on Site Audit Complete finishing).
+  await db.recomputeTaskDueDates(projectId)
+
   revalidatePath('/')
   revalidatePath('/tasks')
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/gantt`)
   revalidatePath('/my-tasks')
 }
 
@@ -125,24 +156,12 @@ export async function updateTaskStatusAction(projectId: string, formData: FormDa
 // one-pager. Only inserts tasks that aren't already present (matched by
 // title) so it's safe to click more than once.
 export async function applyStandardChecklistAction(projectId: string) {
-  const existing = await db.getTasksForProject(projectId)
-  const existingTitles = new Set(existing.map((t) => t.title))
-  const missing = TASK_TEMPLATES.filter((t) => !existingTitles.has(t.title))
-
-  for (const template of missing) {
-    await db.createTask({
-      projectId,
-      title: template.title,
-      category: template.category,
-      assigneeIds: [],
-      dueDate: null,
-      slaDays: null,
-    })
-  }
+  await db.applyStandardChecklist(projectId)
 
   revalidatePath('/')
   revalidatePath('/tasks')
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/gantt`)
 }
 
 // Stand-in for real login until this folds into ip-toolbox-platform's
@@ -290,19 +309,51 @@ export async function updateProjectBudgetAction(projectId: string, formData: For
 }
 
 export async function createProjectExpenseAction(projectId: string, formData: FormData) {
-  const vendorName = String(formData.get('vendorName') ?? '').trim()
+  const vendorId = String(formData.get('vendorId') ?? '')
   const amount = money(formData, 'amount')
   const description = (formData.get('description') as string)?.trim() || null
   const invoiceDate = (formData.get('invoiceDate') as string) || null
 
-  if (!vendorName) throw new Error('Vendor name is required')
+  if (!vendorId) throw new Error('Vendor is required')
   if (amount <= 0) throw new Error('Amount must be greater than zero')
 
   const loggedBy = await getActivePersonId()
-  await db.createProjectExpense(projectId, { vendorName, amount, description, invoiceDate, loggedBy })
+  await db.createProjectExpense(projectId, { vendorId, amount, description, invoiceDate, loggedBy })
 
   revalidatePath('/')
   revalidatePath(`/projects/${projectId}/budget`)
+}
+
+function vendorFieldsFromForm(formData: FormData): db.VendorInput {
+  const name = String(formData.get('name') ?? '').trim()
+  if (!name) throw new Error('Vendor name is required')
+
+  const field = (fieldName: string) => (formData.get(fieldName) as string)?.trim() || null
+  return { name, trade: field('trade'), phone: field('phone'), email: field('email'), notes: field('notes') }
+}
+
+export async function createVendorAction(formData: FormData) {
+  const fields = vendorFieldsFromForm(formData)
+  await db.createVendor(fields)
+  revalidatePath('/vendors')
+}
+
+export async function updateVendorAction(vendorId: string, formData: FormData) {
+  const fields = vendorFieldsFromForm(formData)
+  await db.updateVendor(vendorId, fields)
+  revalidatePath('/vendors')
+}
+
+export async function deleteVendorAction(vendorId: string) {
+  try {
+    await db.deleteVendor(vendorId)
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === '23503') {
+      throw new Error('This vendor has expenses logged against it and can\'t be removed — the expense ledger has to stay a complete record.')
+    }
+    throw err
+  }
+  revalidatePath('/vendors')
 }
 
 function contactFieldsFromForm(formData: FormData): db.ProjectContactInput {

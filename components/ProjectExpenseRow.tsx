@@ -6,7 +6,7 @@ export default function ProjectExpenseRow({ expense }: { expense: ProjectExpense
   return (
     <Card padded className="flex items-center justify-between gap-4">
       <div>
-        <p className="font-medium text-sm">{expense.vendorName}</p>
+        <p className="font-medium text-sm">{expense.vendor.name}</p>
         <p className="text-xs mt-0.5" style={{ color: 'var(--faint)' }}>
           {expense.description || 'No description'}
           {expense.invoiceDate ? ` · ${expense.invoiceDate}` : ''}

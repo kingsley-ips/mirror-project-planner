@@ -116,15 +116,44 @@ export interface ProjectBudget {
   updatedAt: string
 }
 
+export interface Vendor {
+  id: string
+  name: string
+  trade: string | null
+  phone: string | null
+  email: string | null
+  notes: string | null
+}
+
 export interface ProjectExpense {
   id: string
   projectId: string
-  vendorName: string
+  vendor: Vendor
   amount: number
   description: string | null
   invoiceDate: string | null
   loggedBy: Person | null
   createdAt: string
+}
+
+export interface VendorSpend {
+  vendor: Vendor
+  total: number
+  count: number
+}
+
+export function summarizeVendorSpend(expenses: ProjectExpense[]): VendorSpend[] {
+  const byVendor = new Map<string, VendorSpend>()
+  for (const expense of expenses) {
+    const existing = byVendor.get(expense.vendor.id)
+    if (existing) {
+      existing.total += expense.amount
+      existing.count += 1
+    } else {
+      byVendor.set(expense.vendor.id, { vendor: expense.vendor, total: expense.amount, count: 1 })
+    }
+  }
+  return Array.from(byVendor.values()).sort((a, b) => b.total - a.total)
 }
 
 export interface BudgetSummary {

@@ -1,11 +1,9 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import Header from '@/components/Header'
-import StageTracker from '@/components/StageTracker'
-import StageSelector from '@/components/StageSelector'
+import ProjectInfoCard from '@/components/ProjectInfoCard'
 import NewTaskForm from '@/components/NewTaskForm'
 import TaskRow from '@/components/TaskRow'
-import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { applyStandardChecklistAction } from '@/app/actions'
 import { getPeople, getProjectById, getTasksForProject } from '@/lib/db'
@@ -119,25 +117,17 @@ export default async function ProjectDetailPage({
             >
               Lifecycle
             </Link>
+            <Link
+              href={`/projects/${project.id}/gantt`}
+              className="text-sm font-medium px-3 py-1.5 rounded-lg border"
+              style={{ borderColor: 'var(--pine)', color: 'var(--pine)' }}
+            >
+              Gantt
+            </Link>
           </div>
         </div>
 
-        <Card className="mb-6">
-          <div className="flex items-center justify-between gap-4 mb-4">
-            <StageTracker currentStage={project.stage} />
-            <StageSelector projectId={project.id} currentStage={project.stage} />
-          </div>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span style={{ color: 'var(--faint)' }}>Sold Install Date</span>
-              <p className="font-medium">{project.soldInstallDate ?? '—'}</p>
-            </div>
-            <div>
-              <span style={{ color: 'var(--faint)' }}>Projected Install Date</span>
-              <p className="font-medium">{project.projectedInstallDate ?? '—'}</p>
-            </div>
-          </div>
-        </Card>
+        <ProjectInfoCard project={project} />
 
         <div className="flex items-center justify-between gap-4 mb-3">
           <h2 className="text-lg font-semibold">Tasks</h2>

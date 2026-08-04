@@ -2,11 +2,12 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import Header from '@/components/Header'
 import BudgetSummary from '@/components/BudgetSummary'
+import VendorBreakdown from '@/components/VendorBreakdown'
 import ProjectBudgetForm from '@/components/ProjectBudgetForm'
 import ProjectExpenseForm from '@/components/ProjectExpenseForm'
 import ProjectExpenseRow from '@/components/ProjectExpenseRow'
-import { getOrCreateProjectBudget, getProjectById, getProjectExpenses, getVendorNameSuggestions } from '@/lib/db'
-import { summarizeBudget } from '@/lib/types'
+import { getOrCreateProjectBudget, getProjectById, getProjectExpenses, getVendors } from '@/lib/db'
+import { summarizeBudget, summarizeVendorSpend } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,15 +17,16 @@ export default async function ProjectBudgetPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [project, budget, expenses, vendorSuggestions] = await Promise.all([
+  const [project, budget, expenses, vendors] = await Promise.all([
     getProjectById(id),
     getOrCreateProjectBudget(id),
     getProjectExpenses(id),
-    getVendorNameSuggestions(),
+    getVendors(),
   ])
   if (!project) notFound()
 
   const summary = summarizeBudget(budget, expenses)
+  const vendorBreakdown = summarizeVendorSpend(expenses)
 
   return (
     <>
@@ -48,8 +50,13 @@ export default async function ProjectBudgetPage({
         </div>
 
         <h2 className="text-lg font-semibold mb-3">Expenses / Vendor Invoicing</h2>
+        {vendorBreakdown.length > 0 && (
+          <div className="mb-4">
+            <VendorBreakdown breakdown={vendorBreakdown} />
+          </div>
+        )}
         <div className="mb-4">
-          <ProjectExpenseForm projectId={project.id} vendorSuggestions={vendorSuggestions} />
+          <ProjectExpenseForm projectId={project.id} vendors={vendors} />
         </div>
         <div className="flex flex-col gap-2">
           {expenses.map((expense) => (
