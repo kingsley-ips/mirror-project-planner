@@ -3,6 +3,7 @@ import Header from '@/components/Header'
 import StageTracker from '@/components/StageTracker'
 import WorkloadTaskRow from '@/components/WorkloadTaskRow'
 import DashboardCustomizer from '@/components/DashboardCustomizer'
+import DashboardSectionHeader from '@/components/ui/DashboardSectionHeader'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { SlaBadge } from '@/components/ui/SlaStatus'
@@ -87,10 +88,7 @@ export default async function DashboardPage() {
 
         {enabledCards.has('my_tasks') && activePerson && (
           <div className="mb-8">
-            <div className="flex items-center justify-between gap-4 mb-3">
-              <h2 className="text-lg font-semibold">My Open Tasks ({myOpenTasks.length})</h2>
-              <Link href="/my-tasks" className="text-sm" style={{ color: 'var(--pine)' }}>View all →</Link>
-            </div>
+            <DashboardSectionHeader cardKey="my_tasks" title="My Open Tasks" count={myOpenTasks.length} viewAllHref="/my-tasks" />
             <div className="flex flex-col gap-2">
               {myOpenTasks.slice(0, 6).map(({ task, project, slaStatus }) => (
                 <WorkloadTaskRow key={task.id} task={task} project={project} slaStatus={slaStatus} />
@@ -104,10 +102,7 @@ export default async function DashboardPage() {
 
         {enabledCards.has('at_risk') && (
           <div className="mb-8">
-            <div className="flex items-center justify-between gap-4 mb-3">
-              <h2 className="text-lg font-semibold">At-Risk / Overdue ({atRisk.length})</h2>
-              <Link href="/tasks" className="text-sm" style={{ color: 'var(--pine)' }}>View all →</Link>
-            </div>
+            <DashboardSectionHeader cardKey="at_risk" title="At-Risk / Overdue" count={atRisk.length} viewAllHref="/tasks" />
             <div className="flex flex-col gap-2">
               {atRisk.slice(0, 6).map(({ task, project, slaStatus }) => (
                 <WorkloadTaskRow key={task.id} task={task} project={project} slaStatus={slaStatus} />
@@ -120,8 +115,9 @@ export default async function DashboardPage() {
         )}
 
         {enabledCards.has('capacity') && (
-          <Card className="mb-8">
-            <h2 className="text-sm font-semibold mb-3">Team Capacity</h2>
+          <div className="mb-8">
+            <DashboardSectionHeader cardKey="capacity" title="Team Capacity" />
+            <Card>
             <div className="overflow-x-auto">
               <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
                 <thead>
@@ -154,12 +150,13 @@ export default async function DashboardPage() {
                 </tbody>
               </table>
             </div>
-          </Card>
+            </Card>
+          </div>
         )}
 
         {enabledCards.has('projects') && (
           <div className="mb-8">
-            <h2 className="text-lg font-semibold mb-3">All Projects</h2>
+            <DashboardSectionHeader cardKey="projects" title="All Projects" count={projects.length} />
             <div className="flex flex-col gap-4">
               {projects.map((project) => {
                 const projectTasks = tasksByProject[project.id] ?? []
@@ -203,7 +200,7 @@ export default async function DashboardPage() {
 
         {enabledCards.has('daily_logs') && (
           <div className="mb-8">
-            <h2 className="text-lg font-semibold mb-3">Recent Daily Logs</h2>
+            <DashboardSectionHeader cardKey="daily_logs" title="Recent Daily Logs" />
             <div className="flex flex-col gap-2">
               {recentLogs.map(({ log, project }) => (
                 <Card key={log.id} padded>
