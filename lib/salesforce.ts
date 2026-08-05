@@ -82,3 +82,39 @@ export async function fetchSalesforceIpsProjects(): Promise<SalesforceIpsProject
     stage: r.Project_Stage__c ?? null,
   }))
 }
+
+// The doc's own Must-Haves list bans "two places to update the same
+// information" — but a few Mirror checklist tasks also exist as a field
+// on the Salesforce side (verified against the full field list, not
+// guessed). Marking one of these done in Mirror pushes the date across,
+// so nobody has to separately open Salesforce and type it in again.
+export const SALESFORCE_WRITEBACK_FIELDS: Record<string, string> = {
+  'Site Audit Complete': 'Date_Site_Audit_Completed__c',
+  'Electrical Review': 'Electrical_Review_Completed__c',
+  'BOM Approved': 'BOM_Approved__c',
+}
+
+// Best-effort by design — a Salesforce hiccup here must never block the
+// actual "mark task done" click in Mirror. Callers swallow the error
+// after logging it, rather than letting it fail the task update.
+export async function writeBackTaskDate(
+  salesforceId: string,
+  fieldApiName: string,
+  dateIso: string | null
+): Promise<void> {
+  const { accessToken, instanceUrl } = await getAccessToken()
+  const res = await fetch(
+    `${instanceUrl}/services/data/v60.0/sobjects/IPS_Project__c/${salesforceId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ [fieldApiName]: dateIso ? dateIso.slice(0, 10) : null }),
+    }
+  )
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`Salesforce write-back failed: ${res.status} ${await res.text()}`)
+  }
+}

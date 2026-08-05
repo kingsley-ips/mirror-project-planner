@@ -1,16 +1,17 @@
 import 'server-only'
 import { supabaseServer } from './supabase/server'
-import type { DailyLog, EmailTag, Person, Project, ProjectBudget, ProjectContact, ProjectEmail, ProjectExpense, ProjectStage, ProjectStageHistory, Task, TaskCategory, TaskStatus, TimeEntry, TimeEntryCategory, Vendor } from './types'
+import type { DailyLog, DashboardCardKey, EmailTag, Person, Project, ProjectBudget, ProjectContact, ProjectEmail, ProjectExpense, ProjectStage, ProjectStageHistory, Task, TaskCategory, TaskStatus, TimeEntry, TimeEntryCategory, Vendor } from './types'
+import { DEFAULT_DASHBOARD_CARDS, isDashboardCardKey } from './types'
 import { SLA_RULES } from './slaRules'
 import { TASK_TEMPLATES } from './taskTemplates'
-import { fetchSalesforceIpsProjects } from './salesforce'
+import { fetchSalesforceIpsProjects, SALESFORCE_WRITEBACK_FIELDS, writeBackTaskDate } from './salesforce'
 
-type PersonRow = { id: string; name: string; email: string; team: Person['team'] }
+type PersonRow = { id: string; name: string; email: string; team: Person['team']; dashboard_cards: string[] | null }
 type ProjectRow = {
   id: string; name: string; customer_name: string; stage: ProjectStage
   sold_install_date: string | null; projected_install_date: string | null
   google_drive_folder_url: string | null; google_photos_folder_url: string | null
-  created_at: string
+  created_at: string; salesforce_id: string | null
 }
 type TaskRow = {
   id: string; project_id: string; title: string; category: TaskCategory
@@ -77,7 +78,14 @@ type TimeEntryRow = {
 type SubtaskStats = { subtaskCount: number; incompleteSubtaskCount: number }
 
 function toPerson(row: PersonRow): Person {
-  return { id: row.id, name: row.name, email: row.email, team: row.team }
+  const dashboardCards = row.dashboard_cards?.filter(isDashboardCardKey) as DashboardCardKey[] | undefined
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    team: row.team,
+    dashboardCards: dashboardCards && dashboardCards.length > 0 ? dashboardCards : DEFAULT_DASHBOARD_CARDS,
+  }
 }
 
 function toProject(row: ProjectRow): Project {
@@ -91,6 +99,7 @@ function toProject(row: ProjectRow): Project {
     googleDriveFolderUrl: row.google_drive_folder_url,
     googlePhotosFolderUrl: row.google_photos_folder_url,
     createdAt: row.created_at,
+    salesforceId: row.salesforce_id,
   }
 }
 
@@ -381,6 +390,12 @@ export async function updatePerson(id: string, input: {
     .from('people')
     .update({ name: input.name, email: input.email, team: input.team })
     .eq('id', id)
+  if (error) throw error
+}
+
+export async function updatePersonDashboardCards(id: string, cards: DashboardCardKey[]): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db.from('people').update({ dashboard_cards: cards }).eq('id', id)
   if (error) throw error
 }
 
@@ -692,6 +707,27 @@ export async function updateTaskStatus(id: string, status: TaskStatus): Promise<
   if (error) throw error
 }
 
+// Must-have from the doc: "there should not be two places where you have
+// to update the same raw information." A few checklist tasks also exist
+// as a field on the linked Salesforce record — push the date across so
+// nobody has to separately open Salesforce and enter it by hand. Best
+// effort by design: a Salesforce hiccup here must never fail the actual
+// "mark task done" click, so callers should not await this for its
+// success/failure, only fire it and let it log on its own.
+export async function syncTaskCompletionToSalesforce(
+  taskTitle: string,
+  project: Project,
+  completedAt: string | null
+): Promise<void> {
+  const fieldApiName = SALESFORCE_WRITEBACK_FIELDS[taskTitle]
+  if (!fieldApiName || !project.salesforceId) return
+  try {
+    await writeBackTaskDate(project.salesforceId, fieldApiName, completedAt)
+  } catch (err) {
+    console.error('Salesforce write-back failed', { taskTitle, projectId: project.id, fieldApiName, err })
+  }
+}
+
 export interface ReminderCandidate {
   task: Task
   project: Project
@@ -741,6 +777,27 @@ export async function getDailyLogsForProject(projectId: string): Promise<DailyLo
     .order('log_date', { ascending: false })
   if (error) throw error
   return (data as DailyLogRow[]).map(toDailyLog)
+}
+
+export interface DailyLogWithProject {
+  log: DailyLog
+  project: Project
+}
+
+// For the dashboard's "Recent Daily Logs" card — most recent entries
+// across every project, not scoped to one.
+export async function getRecentDailyLogs(limit: number): Promise<DailyLogWithProject[]> {
+  const db = supabaseServer()
+  const { data, error } = await db
+    .from('daily_logs')
+    .select(`${DAILY_LOG_SELECT}, projects(*)`)
+    .order('log_date', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  const rows = data as (DailyLogRow & { projects: ProjectRow | null })[]
+  return rows
+    .filter((row) => row.projects !== null)
+    .map((row) => ({ log: toDailyLog(row), project: toProject(row.projects!) }))
 }
 
 export async function getDailyLogById(id: string): Promise<DailyLog | null> {

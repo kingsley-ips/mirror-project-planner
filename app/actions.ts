@@ -6,7 +6,7 @@ import { cookies } from 'next/headers'
 import * as db from '@/lib/db'
 import { ACTIVE_PERSON_COOKIE, getActivePersonId } from '@/lib/activePerson'
 import { sendTaskAssignedEmail } from '@/lib/email'
-import { EMAIL_TAGS, isTaskBlocked, PROJECT_STAGES, TIME_ENTRY_CATEGORIES, type EmailTag, type Person, type ProjectStage, type TaskCategory, type TaskStatus, type TimeEntryCategory } from '@/lib/types'
+import { DASHBOARD_CARDS, EMAIL_TAGS, isTaskBlocked, PROJECT_STAGES, TIME_ENTRY_CATEGORIES, type EmailTag, type Person, type ProjectStage, type TaskCategory, type TaskStatus, type TimeEntryCategory } from '@/lib/types'
 
 const TASK_CATEGORIES: TaskCategory[] = [
   'Pre Design', 'Design', 'Job Logistics', 'Material Logistics', 'Construction', 'Project Closeout',
@@ -131,19 +131,25 @@ export async function updateTaskStatusAction(projectId: string, formData: FormDa
   if (!taskId) throw new Error('Missing task id')
   if (!['not_started', 'in_progress', 'done'].includes(status)) throw new Error('Invalid status')
 
+  const task = await db.getTaskById(taskId)
   // "Task does not become available until sub task has been completed" —
   // a task with incomplete subtasks can't move to in_progress or done.
   // The UI already hides this control when blocked; this is the
   // server-side backstop.
-  if (status !== 'not_started') {
-    const task = await db.getTaskById(taskId)
-    if (task && isTaskBlocked(task)) return
-  }
+  if (status !== 'not_started' && task && isTaskBlocked(task)) return
 
   await db.updateTaskStatus(taskId, status)
   // A task being marked done can be the anchor for another task's rule
   // (e.g. Site Audit Report depends on Site Audit Complete finishing).
   await db.recomputeTaskDueDates(projectId)
+
+  if (task) {
+    const project = await db.getProjectById(projectId)
+    if (project) {
+      const completedAt = status === 'done' ? new Date().toISOString() : null
+      await db.syncTaskCompletionToSalesforce(task.title, project, completedAt)
+    }
+  }
 
   revalidatePath('/')
   revalidatePath('/tasks')
@@ -183,6 +189,15 @@ export async function clearActivePersonAction() {
   const store = await cookies()
   store.delete(ACTIVE_PERSON_COOKIE)
   redirect('/my-tasks')
+}
+
+export async function updateDashboardCardsAction(formData: FormData) {
+  const personId = await getActivePersonId()
+  if (!personId) throw new Error('Pick who you are first')
+
+  const cards = DASHBOARD_CARDS.map((c) => c.key).filter((key) => formData.get(key) === 'on')
+  await db.updatePersonDashboardCards(personId, cards)
+  revalidatePath('/')
 }
 
 export async function createPersonAction(formData: FormData) {

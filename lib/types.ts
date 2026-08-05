@@ -34,6 +34,27 @@ export interface Person {
   name: string
   email: string
   team: 'Commercial' | 'OPS' | 'Design' | 'Sales' | 'Field'
+  dashboardCards: DashboardCardKey[]
+}
+
+// "Dashboard view for all employees. Must be customizable" (must-have) —
+// scoped to picking which pre-built cards show on your home screen,
+// rather than a full drag-and-drop layout builder. Order here is the
+// fixed render order; toggling only shows/hides, doesn't reorder.
+export type DashboardCardKey = 'my_tasks' | 'at_risk' | 'capacity' | 'projects' | 'daily_logs'
+
+export const DASHBOARD_CARDS: { key: DashboardCardKey; label: string; description: string }[] = [
+  { key: 'my_tasks', label: 'My Open Tasks', description: "Tasks assigned to you that aren't done yet" },
+  { key: 'at_risk', label: 'At-Risk / Overdue', description: 'Every task across every project approaching or past its deadline' },
+  { key: 'capacity', label: 'Team Capacity', description: 'Open / at-risk / overdue task counts per person' },
+  { key: 'projects', label: 'All Projects', description: 'Every commercial project with its stage and SLA status' },
+  { key: 'daily_logs', label: 'Recent Daily Logs', description: 'The latest site logs across every project' },
+]
+
+export const DEFAULT_DASHBOARD_CARDS: DashboardCardKey[] = DASHBOARD_CARDS.map((c) => c.key)
+
+export function isDashboardCardKey(value: string): value is DashboardCardKey {
+  return DASHBOARD_CARDS.some((c) => c.key === value)
 }
 
 export interface Project {
@@ -46,6 +67,7 @@ export interface Project {
   googleDriveFolderUrl: string | null
   googlePhotosFolderUrl: string | null
   createdAt: string
+  salesforceId: string | null
 }
 
 export interface Task {
