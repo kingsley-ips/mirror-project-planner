@@ -60,7 +60,7 @@ export default async function ProjectBudgetPage({
         </div>
         <div className="flex flex-col gap-2">
           {expenses.map((expense) => (
-            <ProjectExpenseRow key={expense.id} expense={expense} />
+            <ProjectExpenseRow key={expense.id} projectId={project.id} expense={expense} />
           ))}
           {expenses.length === 0 && (
             <p className="text-sm" style={{ color: 'var(--faint)' }}>No expenses logged yet.</p>

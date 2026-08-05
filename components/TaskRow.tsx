@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { isTaskBlocked, type Person, type SlaStatus, type Task } from '@/lib/types'
+import { formatDueTime, isTaskBlocked, type Person, type SlaStatus, type Task } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { SlaBadge } from '@/components/ui/SlaStatus'
@@ -67,6 +67,10 @@ export default function TaskRow({
             <span style={{ color: 'var(--muted)' }}>Due date</span>
             <input type="date" name="dueDate" defaultValue={task.dueDate ?? ''} className="input" />
           </label>
+          <label className="flex flex-col gap-1 text-xs">
+            <span style={{ color: 'var(--muted)' }}>Due time</span>
+            <input type="time" name="dueTime" defaultValue={task.dueTime ?? ''} className="input" />
+          </label>
           <label className="flex flex-col gap-1 text-xs w-24">
             <span style={{ color: 'var(--muted)' }}>SLA (days)</span>
             <input type="number" name="slaDays" min="0" defaultValue={task.slaDays ?? ''} className="input" />
@@ -89,7 +93,7 @@ export default function TaskRow({
           <p className="font-medium text-sm">{task.title}</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--faint)' }}>
             {task.category} · {assigneeText}
-            {task.dueDate ? ` · Due ${task.dueDate}` : ''}
+            {task.dueDate ? ` · Due ${task.dueDate}${task.dueTime ? ` at ${formatDueTime(task.dueTime)}` : ''}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">

@@ -43,6 +43,10 @@ export default function NewTaskForm({
         <span style={{ color: 'var(--muted)' }}>Due date</span>
         <input type="date" name="dueDate" className="input" />
       </label>
+      <label className="flex flex-col gap-1 text-xs">
+        <span style={{ color: 'var(--muted)' }}>Due time</span>
+        <input type="time" name="dueTime" className="input" />
+      </label>
       <label className="flex flex-col gap-1 text-xs w-24">
         <span style={{ color: 'var(--muted)' }}>SLA (days)</span>
         <input type="number" name="slaDays" min="0" className="input" />

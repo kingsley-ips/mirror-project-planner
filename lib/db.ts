@@ -15,7 +15,7 @@ type ProjectRow = {
 }
 type TaskRow = {
   id: string; project_id: string; title: string; category: TaskCategory
-  due_date: string | null; sla_days: number | null
+  due_date: string | null; due_time: string | null; sla_days: number | null
   status: TaskStatus; completed_at: string | null
   parent_task_id: string | null
   task_assignees: { people: PersonRow | null }[]
@@ -39,6 +39,7 @@ type DailyLogRow = {
   project_update: string | null; safety_incidents: string | null; notes: string | null
   created_at: string
   people: PersonRow | null
+  daily_log_photos: { url: string }[]
 }
 
 type ProjectBudgetRow = {
@@ -59,6 +60,7 @@ type VendorRow = {
 type ProjectExpenseRow = {
   id: string; project_id: string; amount: string
   description: string | null; invoice_date: string | null; created_at: string
+  invoice_number: string | null; invoice_paid_date: string | null
   people: PersonRow | null
   vendors: VendorRow
 }
@@ -114,6 +116,7 @@ function toTask(row: TaskRow, stats?: SubtaskStats): Task {
       .filter((p): p is PersonRow => p !== null)
       .map(toPerson),
     dueDate: row.due_date,
+    dueTime: row.due_time,
     slaDays: row.sla_days,
     status: row.status,
     completedAt: row.completed_at,
@@ -141,6 +144,7 @@ function toDailyLog(row: DailyLogRow): DailyLog {
     notes: row.notes,
     createdBy: row.people ? toPerson(row.people) : null,
     createdAt: row.created_at,
+    photoUrls: (row.daily_log_photos ?? []).map((p) => p.url),
   }
 }
 
@@ -193,6 +197,8 @@ function toProjectExpense(row: ProjectExpenseRow): ProjectExpense {
     amount: Number(row.amount),
     description: row.description,
     invoiceDate: row.invoice_date,
+    invoiceNumber: row.invoice_number,
+    invoicePaidDate: row.invoice_paid_date,
     loggedBy: row.people ? toPerson(row.people) : null,
     createdAt: row.created_at,
   }
@@ -654,6 +660,7 @@ export async function createTask(input: {
   category: TaskCategory
   assigneeIds: string[]
   dueDate: string | null
+  dueTime: string | null
   slaDays: number | null
   parentTaskId?: string | null
 }): Promise<string> {
@@ -665,6 +672,7 @@ export async function createTask(input: {
       title: input.title,
       category: input.category,
       due_date: input.dueDate,
+      due_time: input.dueTime,
       sla_days: input.slaDays,
       parent_task_id: input.parentTaskId ?? null,
     })
@@ -681,6 +689,7 @@ export async function updateTask(id: string, input: {
   category: TaskCategory
   assigneeIds: string[]
   dueDate: string | null
+  dueTime: string | null
   slaDays: number | null
 }): Promise<void> {
   const db = supabaseServer()
@@ -690,6 +699,7 @@ export async function updateTask(id: string, input: {
       title: input.title,
       category: input.category,
       due_date: input.dueDate,
+      due_time: input.dueTime,
       sla_days: input.slaDays,
     })
     .eq('id', id)
@@ -766,7 +776,7 @@ export async function setTaskNotifiedStatus(
   if (error) throw error
 }
 
-const DAILY_LOG_SELECT = '*, people(*)'
+const DAILY_LOG_SELECT = '*, people(*), daily_log_photos(url)'
 
 export async function getDailyLogsForProject(projectId: string): Promise<DailyLog[]> {
   const db = supabaseServer()
@@ -871,6 +881,28 @@ export async function updateDailyLog(id: string, input: Omit<DailyLogInput, 'cre
       notes: input.notes,
     })
     .eq('id', id)
+  if (error) throw error
+}
+
+// Storage upload happens server-side with the service-role key, so RLS on
+// storage.objects never applies here — public read (bucket.public = true,
+// set in the migration) is what makes the resulting URL usable directly
+// in an <img>, same as a Google Photos link would be.
+export async function addDailyLogPhotos(dailyLogId: string, files: File[]): Promise<void> {
+  const nonEmpty = files.filter((f) => f.size > 0)
+  if (nonEmpty.length === 0) return
+
+  const db = supabaseServer()
+  const urls: string[] = []
+  for (const file of nonEmpty) {
+    const path = `${dailyLogId}/${Date.now()}-${file.name}`
+    const { error: uploadError } = await db.storage.from('daily-log-photos').upload(path, file)
+    if (uploadError) throw uploadError
+    const { data } = db.storage.from('daily-log-photos').getPublicUrl(path)
+    urls.push(data.publicUrl)
+  }
+
+  const { error } = await db.from('daily_log_photos').insert(urls.map((url) => ({ daily_log_id: dailyLogId, url })))
   if (error) throw error
 }
 
@@ -1054,6 +1086,22 @@ export async function createProjectExpense(projectId: string, input: ProjectExpe
     .single()
   if (error) throw error
   return data.id
+}
+
+// The expense ledger is otherwise append-only (audit trail — see
+// createProjectExpense), but invoice number and paid date are the one
+// exception: they're naturally filled in after the expense is already
+// logged, not known at the time. Nothing else about the record changes.
+export async function updateProjectExpenseInvoiceNumber(id: string, invoiceNumber: string | null): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db.from('project_expenses').update({ invoice_number: invoiceNumber }).eq('id', id)
+  if (error) throw error
+}
+
+export async function setProjectExpensePaid(id: string, paidDate: string | null): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db.from('project_expenses').update({ invoice_paid_date: paidDate }).eq('id', id)
+  if (error) throw error
 }
 
 export async function getVendors(): Promise<Vendor[]> {

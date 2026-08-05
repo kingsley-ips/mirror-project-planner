@@ -77,6 +77,7 @@ export interface Task {
   category: TaskCategory
   assignees: Person[]
   dueDate: string | null
+  dueTime: string | null
   slaDays: number | null
   status: TaskStatus
   completedAt: string | null
@@ -87,6 +88,18 @@ export interface Task {
 
 export function isTaskBlocked(task: Task): boolean {
   return task.incompleteSubtaskCount > 0
+}
+
+// Tasks store due time as a plain "HH:MM" (24h) string from <input
+// type="time">, separate from the SLA-computed due_date — formatted here
+// once so every row/card that displays it stays consistent.
+export function formatDueTime(time: string | null): string | null {
+  if (!time) return null
+  const [hourStr, minute] = time.split(':')
+  const hour = Number(hourStr)
+  const period = hour >= 12 ? 'PM' : 'AM'
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12
+  return `${hour12}:${minute} ${period}`
 }
 
 export interface DailyLog {
@@ -106,6 +119,7 @@ export interface DailyLog {
   notes: string | null
   createdBy: Person | null
   createdAt: string
+  photoUrls: string[]
 }
 
 export type EmailTag = 'Internal' | 'Vendor' | 'Owner' | 'GC' | 'Other'
@@ -154,6 +168,8 @@ export interface ProjectExpense {
   amount: number
   description: string | null
   invoiceDate: string | null
+  invoiceNumber: string | null
+  invoicePaidDate: string | null
   loggedBy: Person | null
   createdAt: string
 }

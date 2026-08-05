@@ -70,8 +70,21 @@ export default function DailyLogForm({
         <textarea name="notes" defaultValue={existing?.notes ?? ''} className="input" rows={2} />
       </Field>
 
+      <Field label="Photos">
+        <input type="file" name="photos" multiple accept="image/*" className="input" />
+      </Field>
+      {existing && existing.photoUrls.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {existing.photoUrls.map((url) => (
+            <a key={url} href={url} target="_blank" rel="noopener noreferrer">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="" className="w-16 h-16 object-cover rounded-lg border" style={{ borderColor: 'var(--border)' }} />
+            </a>
+          ))}
+        </div>
+      )}
       <p className="text-xs" style={{ color: 'var(--faint)' }}>
-        Photos go in the project's Google Photos folder (linked at the top of the project page) — not uploaded here.
+        Older photos may still be in the project's Google Photos folder (linked at the top of the project page).
       </p>
 
       <div className="flex items-center gap-2">

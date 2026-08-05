@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { isTaskBlocked, type Project, type SlaStatus, type Task } from '@/lib/types'
+import { formatDueTime, isTaskBlocked, type Project, type SlaStatus, type Task } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
 import { SlaBadge } from '@/components/ui/SlaStatus'
 import TaskStatusForm from '@/components/TaskStatusForm'
@@ -27,7 +27,7 @@ export default function WorkloadTaskRow({
             {project.name}
           </Link>
           {' · '}{task.category}{' · '}{assigneeText}
-          {task.dueDate ? ` · Due ${task.dueDate}` : ''}
+          {task.dueDate ? ` · Due ${task.dueDate}${task.dueTime ? ` at ${formatDueTime(task.dueTime)}` : ''}` : ''}
         </p>
       </div>
       <div className="flex items-center gap-3 shrink-0">

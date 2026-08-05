@@ -82,6 +82,7 @@ export async function createTaskAction(projectId: string, formData: FormData) {
   const category = String(formData.get('category') ?? '') as TaskCategory
   const assigneeIds = formData.getAll('assigneeIds').map(String).filter(Boolean)
   const dueDate = (formData.get('dueDate') as string) || null
+  const dueTime = (formData.get('dueTime') as string) || null
   const slaDaysRaw = formData.get('slaDays') as string
   const slaDays = slaDaysRaw ? Number(slaDaysRaw) : null
   const parentTaskId = (formData.get('parentTaskId') as string) || null
@@ -89,7 +90,7 @@ export async function createTaskAction(projectId: string, formData: FormData) {
   if (!title) throw new Error('Task title is required')
   if (!TASK_CATEGORIES.includes(category)) throw new Error('Invalid category')
 
-  const taskId = await db.createTask({ projectId, title, category, assigneeIds, dueDate, slaDays, parentTaskId })
+  const taskId = await db.createTask({ projectId, title, category, assigneeIds, dueDate, dueTime, slaDays, parentTaskId })
   await notifyNewAssignees(taskId, projectId, assigneeIds)
   await db.recomputeTaskDueDates(projectId)
 
@@ -104,6 +105,7 @@ export async function updateTaskAction(projectId: string, taskId: string, formDa
   const category = String(formData.get('category') ?? '') as TaskCategory
   const assigneeIds = formData.getAll('assigneeIds').map(String).filter(Boolean)
   const dueDate = (formData.get('dueDate') as string) || null
+  const dueTime = (formData.get('dueTime') as string) || null
   const slaDaysRaw = formData.get('slaDays') as string
   const slaDays = slaDaysRaw ? Number(slaDaysRaw) : null
 
@@ -111,7 +113,7 @@ export async function updateTaskAction(projectId: string, taskId: string, formDa
   if (!TASK_CATEGORIES.includes(category)) throw new Error('Invalid category')
 
   const before = await db.getTaskById(taskId)
-  await db.updateTask(taskId, { title, category, assigneeIds, dueDate, slaDays })
+  await db.updateTask(taskId, { title, category, assigneeIds, dueDate, dueTime, slaDays })
 
   const beforeIds = new Set((before?.assignees ?? []).map((p) => p.id))
   const newlyAdded = assigneeIds.filter((id) => !beforeIds.has(id))
@@ -256,8 +258,9 @@ export async function createDailyLogAction(projectId: string, formData: FormData
   const fields = dailyLogFieldsFromForm(formData)
   const createdBy = await getActivePersonId()
 
+  let logId: string
   try {
-    await db.createDailyLog(projectId, { ...fields, createdBy })
+    logId = await db.createDailyLog(projectId, { ...fields, createdBy })
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'code' in err && err.code === '23505') {
       throw new Error(`A daily log for ${fields.logDate} already exists for this project — edit that one instead.`)
@@ -265,12 +268,19 @@ export async function createDailyLogAction(projectId: string, formData: FormData
     throw err
   }
 
+  const photos = formData.getAll('photos').filter((f): f is File => f instanceof File)
+  await db.addDailyLogPhotos(logId, photos)
+
   revalidatePath(`/projects/${projectId}/logs`)
 }
 
 export async function updateDailyLogAction(projectId: string, logId: string, formData: FormData) {
   const fields = dailyLogFieldsFromForm(formData)
   await db.updateDailyLog(logId, fields)
+
+  const photos = formData.getAll('photos').filter((f): f is File => f instanceof File)
+  await db.addDailyLogPhotos(logId, photos)
+
   revalidatePath(`/projects/${projectId}/logs`)
 }
 
@@ -336,6 +346,24 @@ export async function createProjectExpenseAction(projectId: string, formData: Fo
   await db.createProjectExpense(projectId, { vendorId, amount, description, invoiceDate, loggedBy })
 
   revalidatePath('/')
+  revalidatePath(`/projects/${projectId}/budget`)
+}
+
+export async function updateExpenseInvoiceNumberAction(projectId: string, formData: FormData) {
+  const expenseId = String(formData.get('expenseId') ?? '')
+  const invoiceNumber = (formData.get('invoiceNumber') as string)?.trim() || null
+  if (!expenseId) throw new Error('Missing expense id')
+
+  await db.updateProjectExpenseInvoiceNumber(expenseId, invoiceNumber)
+  revalidatePath(`/projects/${projectId}/budget`)
+}
+
+export async function toggleExpensePaidAction(projectId: string, formData: FormData) {
+  const expenseId = String(formData.get('expenseId') ?? '')
+  const currentlyPaid = formData.get('currentlyPaid') === 'true'
+  if (!expenseId) throw new Error('Missing expense id')
+
+  await db.setProjectExpensePaid(expenseId, currentlyPaid ? null : new Date().toISOString().slice(0, 10))
   revalidatePath(`/projects/${projectId}/budget`)
 }
 

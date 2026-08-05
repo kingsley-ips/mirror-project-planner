@@ -48,6 +48,17 @@ export default function DailyLogEntry({ projectId, log }: { projectId: string; l
         <Row label="Safety incidents" value={log.safetyIncidents} />
         <Row label="Notes" value={log.notes} />
       </div>
+
+      {log.photoUrls.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-3">
+          {log.photoUrls.map((url) => (
+            <a key={url} href={url} target="_blank" rel="noopener noreferrer">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="" className="w-20 h-20 object-cover rounded-lg border" style={{ borderColor: 'var(--border)' }} />
+            </a>
+          ))}
+        </div>
+      )}
     </Card>
   )
 }

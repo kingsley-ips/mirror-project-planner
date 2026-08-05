@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { isTaskBlocked, type Person, type Project, type SlaStatus, type Task } from '@/lib/types'
+import { formatDueTime, isTaskBlocked, type Person, type Project, type SlaStatus, type Task } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
 import { SlaBadge } from '@/components/ui/SlaStatus'
 import TaskStatusForm from '@/components/TaskStatusForm'
@@ -27,7 +27,7 @@ export default function MyTaskRow({
             {project.name}
           </Link>
           {' · '}{task.category}
-          {task.dueDate ? ` · Due ${task.dueDate}` : ''}
+          {task.dueDate ? ` · Due ${task.dueDate}${task.dueTime ? ` at ${formatDueTime(task.dueTime)}` : ''}` : ''}
           {others.length > 0 ? ` · with ${others.map((p) => p.name).join(', ')}` : ''}
         </p>
       </div>
