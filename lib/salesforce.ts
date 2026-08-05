@@ -36,16 +36,23 @@ export interface SalesforceIpsProject {
 }
 
 // Scoped two ways:
-// - Commercial only (RecordType "PV-COM") — IPS_Project__c also holds
-//   residential PV/ESS/HVAC/electrical jobs, which this app doesn't track.
-// - Recently-sold only — the object holds every job back to 2022 (1,500+
-//   records), most long since complete. Without this, every sync would
-//   try to import the entire historical archive instead of the active
-//   pipeline this app actually tracks.
+// - Commercial only — IPS_Project__c also holds residential PV/ESS/HVAC/
+//   electrical jobs, which this app doesn't track. "Commercial" isn't
+//   consistently tagged: some records use RecordType "PV-COM", but others
+//   (e.g. "The Standard (Building 3) - PV COM") have no RecordType at all
+//   and are only identifiable by the name ending in "COM". Checked against
+//   the full 1,500+ record history — this combination has zero false
+//   positives (surnames like "Newcomb" don't END in "COM") and isn't
+//   hardcoded to the PV trade, so an "ESS-COM" or "HVAC-COM" would also
+//   be caught if that naming convention ever gets used.
+// - Recently-sold only — the object holds every job back to 2022, most
+//   long since complete. Without this, every sync would try to import
+//   the entire historical archive instead of the active pipeline this
+//   app actually tracks.
 const SOQL = `
   select Id, Name, Account__r.Name, Contract_Signed_Date__c, Estimated_Install_Date__c, Project_Stage__c
   from IPS_Project__c
-  where RecordType.DeveloperName = 'PV_COM'
+  where (RecordType.DeveloperName = 'PV_COM' or Name like '%COM')
   and Contract_Signed_Date__c >= LAST_N_MONTHS:6
 `.trim()
 
