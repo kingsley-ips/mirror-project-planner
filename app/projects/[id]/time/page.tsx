@@ -4,7 +4,8 @@ import Header from '@/components/Header'
 import TimeSummaryCard from '@/components/TimeSummaryCard'
 import TimeEntryForm from '@/components/TimeEntryForm'
 import TimeEntryRow from '@/components/TimeEntryRow'
-import { getPeople, getProjectById, getTimeEntriesForProject } from '@/lib/db'
+import ProjectTeamManager from '@/components/ProjectTeamManager'
+import { getPeople, getProjectById, getProjectTeamMembers, getTimeEntriesForProject } from '@/lib/db'
 import { summarizeTimeEntries } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -15,10 +16,11 @@ export default async function TimeTrackingPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [project, entries, people] = await Promise.all([
+  const [project, entries, people, teamMembers] = await Promise.all([
     getProjectById(id),
     getTimeEntriesForProject(id),
     getPeople(),
+    getProjectTeamMembers(id),
   ])
   if (!project) notFound()
 
@@ -40,8 +42,10 @@ export default async function TimeTrackingPage({
           <TimeSummaryCard summary={summary} />
         </div>
 
+        <ProjectTeamManager projectId={project.id} teamMembers={teamMembers} allPeople={people} />
+
         <div className="mb-4">
-          <TimeEntryForm projectId={project.id} people={people} />
+          <TimeEntryForm projectId={project.id} people={teamMembers} />
         </div>
 
         <div className="flex flex-col gap-2">

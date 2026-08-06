@@ -10,6 +10,14 @@ function todayIso(): string {
 export default function TimeEntryForm({ projectId, people }: { projectId: string; people: Person[] }) {
   const action = createTimeEntryAction.bind(null, projectId)
 
+  if (people.length === 0) {
+    return (
+      <p className="text-sm p-4 rounded-xl border" style={{ borderColor: 'var(--border)', color: 'var(--faint)' }}>
+        No one's assigned to this project yet — add someone to the team above before logging hours.
+      </p>
+    )
+  }
+
   return (
     <form action={action} className="flex flex-wrap items-end gap-2 p-4 rounded-xl border" style={{ borderColor: 'var(--border)' }}>
       <label className="flex flex-col gap-1 text-xs flex-1 min-w-[160px]">

@@ -34,6 +34,7 @@ export interface Person {
   name: string
   email: string
   team: 'Commercial' | 'OPS' | 'Design' | 'Sales' | 'Field'
+  jobTitle: string | null
   dashboardCards: DashboardCardKey[]
 }
 

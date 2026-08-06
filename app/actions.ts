@@ -206,11 +206,12 @@ export async function createPersonAction(formData: FormData) {
   const name = String(formData.get('name') ?? '').trim()
   const email = String(formData.get('email') ?? '').trim()
   const team = String(formData.get('team') ?? '') as Person['team']
+  const jobTitle = (formData.get('jobTitle') as string)?.trim() || null
 
   if (!name || !email) throw new Error('Name and email are required')
   if (!PERSON_TEAMS.includes(team)) throw new Error('Invalid team')
 
-  await db.createPerson({ name, email, team })
+  await db.createPerson({ name, email, team, jobTitle })
   revalidatePath('/people')
 }
 
@@ -218,11 +219,12 @@ export async function updatePersonAction(personId: string, formData: FormData) {
   const name = String(formData.get('name') ?? '').trim()
   const email = String(formData.get('email') ?? '').trim()
   const team = String(formData.get('team') ?? '') as Person['team']
+  const jobTitle = (formData.get('jobTitle') as string)?.trim() || null
 
   if (!name || !email) throw new Error('Name and email are required')
   if (!PERSON_TEAMS.includes(team)) throw new Error('Invalid team')
 
-  await db.updatePerson(personId, { name, email, team })
+  await db.updatePerson(personId, { name, email, team, jobTitle })
   revalidatePath('/people')
 }
 
@@ -444,6 +446,29 @@ export async function createTimeEntryAction(projectId: string, formData: FormDat
   if (!hours || hours <= 0) throw new Error('Hours must be greater than zero')
   if (!TIME_ENTRY_CATEGORIES.includes(category)) throw new Error('Invalid category')
 
+  // "Once an employee is assigned to a project, hours can be entered" —
+  // the UI already only offers assigned people; this is the backstop.
+  const team = await db.getProjectTeamMembers(projectId)
+  if (!team.some((p) => p.id === personId)) {
+    throw new Error('This person is not assigned to the project yet — add them to the team first')
+  }
+
   await db.createTimeEntry(projectId, { personId, workDate, hours, category, notes })
+  revalidatePath(`/projects/${projectId}/time`)
+}
+
+export async function addTeamMemberAction(projectId: string, formData: FormData) {
+  const personId = String(formData.get('personId') ?? '')
+  if (!personId) throw new Error('Person is required')
+
+  await db.addProjectTeamMember(projectId, personId)
+  revalidatePath(`/projects/${projectId}/time`)
+}
+
+export async function removeTeamMemberAction(projectId: string, formData: FormData) {
+  const personId = String(formData.get('personId') ?? '')
+  if (!personId) throw new Error('Person is required')
+
+  await db.removeProjectTeamMember(projectId, personId)
   revalidatePath(`/projects/${projectId}/time`)
 }

@@ -21,6 +21,10 @@ export default function NewPersonForm() {
           {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
       </label>
+      <label className="flex flex-col gap-1 text-xs flex-1 min-w-[140px]">
+        <span style={{ color: 'var(--muted)' }}>Job title</span>
+        <input name="jobTitle" className="input" placeholder="e.g. Installer, Electrician" />
+      </label>
       <Button type="submit" size="sm">Add Person</Button>
     </form>
   )

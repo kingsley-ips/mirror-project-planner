@@ -36,6 +36,10 @@ export default function PersonRow({ person }: { person: Person }) {
               {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
+          <label className="flex flex-col gap-1 text-xs flex-1 min-w-[140px]">
+            <span style={{ color: 'var(--muted)' }}>Job title</span>
+            <input name="jobTitle" defaultValue={person.jobTitle ?? ''} className="input" placeholder="e.g. Installer, Electrician" />
+          </label>
           <Button type="submit" size="sm">Save</Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
         </form>
@@ -47,7 +51,9 @@ export default function PersonRow({ person }: { person: Person }) {
     <Card padded className="flex items-center justify-between gap-4">
       <div>
         <p className="font-medium text-sm">{person.name}</p>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--faint)' }}>{person.email} · {person.team}</p>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--faint)' }}>
+          {person.email} · {person.team}{person.jobTitle ? ` · ${person.jobTitle}` : ''}
+        </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>

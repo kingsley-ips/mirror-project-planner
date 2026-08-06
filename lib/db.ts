@@ -6,7 +6,7 @@ import { SLA_RULES } from './slaRules'
 import { TASK_TEMPLATES } from './taskTemplates'
 import { fetchSalesforceIpsProjects, SALESFORCE_WRITEBACK_FIELDS, writeBackTaskDate } from './salesforce'
 
-type PersonRow = { id: string; name: string; email: string; team: Person['team']; dashboard_cards: string[] | null }
+type PersonRow = { id: string; name: string; email: string; team: Person['team']; job_title: string | null; dashboard_cards: string[] | null }
 type ProjectRow = {
   id: string; name: string; customer_name: string; stage: ProjectStage
   sold_install_date: string | null; projected_install_date: string | null
@@ -86,6 +86,7 @@ function toPerson(row: PersonRow): Person {
     name: row.name,
     email: row.email,
     team: row.team,
+    jobTitle: row.job_title,
     dashboardCards: dashboardCards && dashboardCards.length > 0 ? dashboardCards : DEFAULT_DASHBOARD_CARDS,
   }
 }
@@ -375,11 +376,12 @@ export async function createPerson(input: {
   name: string
   email: string
   team: Person['team']
+  jobTitle: string | null
 }): Promise<string> {
   const db = supabaseServer()
   const { data, error } = await db
     .from('people')
-    .insert({ name: input.name, email: input.email, team: input.team })
+    .insert({ name: input.name, email: input.email, team: input.team, job_title: input.jobTitle })
     .select('id')
     .single()
   if (error) throw error
@@ -390,11 +392,12 @@ export async function updatePerson(id: string, input: {
   name: string
   email: string
   team: Person['team']
+  jobTitle: string | null
 }): Promise<void> {
   const db = supabaseServer()
   const { error } = await db
     .from('people')
-    .update({ name: input.name, email: input.email, team: input.team })
+    .update({ name: input.name, email: input.email, team: input.team, job_title: input.jobTitle })
     .eq('id', id)
   if (error) throw error
 }
@@ -1244,6 +1247,40 @@ export async function createTimeEntry(projectId: string, input: TimeEntryInput):
     .single()
   if (error) throw error
   return data.id
+}
+
+// Doc: "OPS can assign employees to the project -> Once an employee is
+// assigned to a project, hours can be entered." This is the gate —
+// createTimeEntryAction checks membership before calling createTimeEntry.
+export async function getProjectTeamMembers(projectId: string): Promise<Person[]> {
+  const db = supabaseServer()
+  const { data, error } = await db
+    .from('project_team_members')
+    .select('people(*)')
+    .eq('project_id', projectId)
+  if (error) throw error
+  return (data as unknown as { people: PersonRow }[])
+    .map((row) => row.people)
+    .filter((p): p is PersonRow => p !== null)
+    .map(toPerson)
+}
+
+export async function addProjectTeamMember(projectId: string, personId: string): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db
+    .from('project_team_members')
+    .insert({ project_id: projectId, person_id: personId })
+  if (error && error.code !== '23505') throw error
+}
+
+export async function removeProjectTeamMember(projectId: string, personId: string): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db
+    .from('project_team_members')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('person_id', personId)
+  if (error) throw error
 }
 
 function addDays(isoDate: string, offsetDays: number): string {
