@@ -113,11 +113,23 @@ export async function updateTaskAction(projectId: string, taskId: string, formDa
   if (!TASK_CATEGORIES.includes(category)) throw new Error('Invalid category')
 
   const before = await db.getTaskById(taskId)
-  await db.updateTask(taskId, { title, category, assigneeIds, dueDate, dueTime, slaDays })
+  const dueDateChanged = before !== null && before.dueDate !== dueDate
+  await db.updateTask(taskId, { title, category, assigneeIds, dueDate, dueTime, dueDateChanged, slaDays })
 
   const beforeIds = new Set((before?.assignees ?? []).map((p) => p.id))
   const newlyAdded = assigneeIds.filter((id) => !beforeIds.has(id))
   await notifyNewAssignees(taskId, projectId, newlyAdded)
+  await db.recomputeTaskDueDates(projectId)
+
+  revalidatePath('/')
+  revalidatePath('/tasks')
+  revalidatePath('/my-tasks')
+  revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/gantt`)
+}
+
+export async function resetTaskDueDateAction(projectId: string, taskId: string) {
+  await db.resetTaskDueDateOverride(taskId)
   await db.recomputeTaskDueDates(projectId)
 
   revalidatePath('/')

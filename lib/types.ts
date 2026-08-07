@@ -79,6 +79,7 @@ export interface Task {
   assignees: Person[]
   dueDate: string | null
   dueTime: string | null
+  dueDateOverridden: boolean
   slaDays: number | null
   status: TaskStatus
   completedAt: string | null

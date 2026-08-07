@@ -15,7 +15,7 @@ type ProjectRow = {
 }
 type TaskRow = {
   id: string; project_id: string; title: string; category: TaskCategory
-  due_date: string | null; due_time: string | null; sla_days: number | null
+  due_date: string | null; due_time: string | null; due_date_overridden: boolean; sla_days: number | null
   status: TaskStatus; completed_at: string | null
   parent_task_id: string | null
   task_assignees: { people: PersonRow | null }[]
@@ -118,6 +118,7 @@ function toTask(row: TaskRow, stats?: SubtaskStats): Task {
       .map(toPerson),
     dueDate: row.due_date,
     dueTime: row.due_time,
+    dueDateOverridden: row.due_date_overridden,
     slaDays: row.sla_days,
     status: row.status,
     completedAt: row.completed_at,
@@ -676,6 +677,10 @@ export async function createTask(input: {
       category: input.category,
       due_date: input.dueDate,
       due_time: input.dueTime,
+      // An explicit date typed in at creation counts as a manual choice —
+      // otherwise the cascade engine would silently recalculate it away
+      // on the very next recompute, same bug as the edit-form case.
+      due_date_overridden: input.dueDate !== null,
       sla_days: input.slaDays,
       parent_task_id: input.parentTaskId ?? null,
     })
@@ -693,6 +698,7 @@ export async function updateTask(id: string, input: {
   assigneeIds: string[]
   dueDate: string | null
   dueTime: string | null
+  dueDateChanged: boolean
   slaDays: number | null
 }): Promise<void> {
   const db = supabaseServer()
@@ -703,12 +709,22 @@ export async function updateTask(id: string, input: {
       category: input.category,
       due_date: input.dueDate,
       due_time: input.dueTime,
+      // Only flip the override on when this edit actually changed the
+      // date — otherwise saving an unrelated field (title, assignee)
+      // would freeze a perfectly fine auto-computed date by accident.
+      ...(input.dueDateChanged ? { due_date_overridden: true } : {}),
       sla_days: input.slaDays,
     })
     .eq('id', id)
   if (error) throw error
 
   await setTaskAssignees(id, input.assigneeIds)
+}
+
+export async function resetTaskDueDateOverride(id: string): Promise<void> {
+  const db = supabaseServer()
+  const { error } = await db.from('tasks').update({ due_date_overridden: false }).eq('id', id)
+  if (error) throw error
 }
 
 export async function updateTaskStatus(id: string, status: TaskStatus): Promise<void> {
@@ -1299,31 +1315,58 @@ export async function recomputeTaskDueDates(projectId: string): Promise<void> {
   const db = supabaseServer()
   const [{ data: projectRow, error: projErr }, { data: taskRows, error: taskErr }] = await Promise.all([
     db.from('projects').select('sold_install_date, projected_install_date').eq('id', projectId).single(),
-    db.from('tasks').select('id, title, due_date, completed_at, first_assigned_at').eq('project_id', projectId),
+    db.from('tasks').select('id, title, due_date, due_date_overridden, completed_at, first_assigned_at').eq('project_id', projectId),
   ])
   if (projErr) throw projErr
   if (taskErr) throw taskErr
 
-  type RuleTaskRow = { id: string; title: string; due_date: string | null; completed_at: string | null; first_assigned_at: string | null }
+  type RuleTaskRow = {
+    id: string; title: string; due_date: string | null; due_date_overridden: boolean
+    completed_at: string | null; first_assigned_at: string | null
+  }
   const rows = taskRows as RuleTaskRow[]
   const byTitle = new Map(rows.map((r) => [r.title, r]))
 
-  for (const row of rows) {
-    const rule = SLA_RULES[row.title]
-    if (!rule) continue
+  // A task_completed anchor can point at a task that itself just got
+  // recomputed in this same pass — e.g. resetting "50% Plan Complete"
+  // back to automatic must also push "50% Plan Set Review" forward,
+  // not leave it stale until the next unrelated recompute. Looping until
+  // nothing changes (capped well above the current 1-level-deep chains)
+  // makes ordering within `rows` irrelevant instead of fragile.
+  for (let pass = 0; pass < 5; pass++) {
+    let changed = false
 
-    let anchor: string | null = null
-    if (rule.anchor.type === 'sold_install_date') anchor = projectRow.sold_install_date
-    else if (rule.anchor.type === 'projected_install_date') anchor = projectRow.projected_install_date
-    else if (rule.anchor.type === 'task_completed') anchor = byTitle.get(rule.anchor.taskTitle)?.completed_at ?? null
-    else if (rule.anchor.type === 'first_assigned') anchor = row.first_assigned_at
+    for (const row of rows) {
+      const rule = SLA_RULES[row.title]
+      if (!rule) continue
+      // A manual edit wins until the person resets it back to automatic —
+      // otherwise this loop would silently overwrite it right back.
+      if (row.due_date_overridden) continue
 
-    if (!anchor) continue
+      let anchor: string | null = null
+      if (rule.anchor.type === 'sold_install_date') anchor = projectRow.sold_install_date
+      else if (rule.anchor.type === 'projected_install_date') anchor = projectRow.projected_install_date
+      else if (rule.anchor.type === 'task_completed') {
+        // Prefer the real completion date once it's actually done; until
+        // then, cascade off its current due date (auto or manually
+        // overridden) so downstream tasks move the moment you push this
+        // one out, instead of sitting blank until it's checked off.
+        const predecessor = byTitle.get(rule.anchor.taskTitle)
+        anchor = predecessor?.completed_at ?? predecessor?.due_date ?? null
+      }
+      else if (rule.anchor.type === 'first_assigned') anchor = row.first_assigned_at
 
-    const newDueDate = addDays(anchor, rule.offsetDays)
-    if (row.due_date !== newDueDate) {
-      const { error } = await db.from('tasks').update({ due_date: newDueDate }).eq('id', row.id)
-      if (error) throw error
+      if (!anchor) continue
+
+      const newDueDate = addDays(anchor, rule.offsetDays)
+      if (row.due_date !== newDueDate) {
+        const { error } = await db.from('tasks').update({ due_date: newDueDate }).eq('id', row.id)
+        if (error) throw error
+        row.due_date = newDueDate
+        changed = true
+      }
     }
+
+    if (!changed) break
   }
 }

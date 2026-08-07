@@ -1,8 +1,10 @@
 import Link from 'next/link'
 import { formatDueTime, isTaskBlocked, type Project, type SlaStatus, type Task } from '@/lib/types'
+import { hasSlaRule } from '@/lib/slaRules'
 import { Card } from '@/components/ui/Card'
 import { SlaBadge } from '@/components/ui/SlaStatus'
 import TaskStatusForm from '@/components/TaskStatusForm'
+import { resetTaskDueDateAction } from '@/app/actions'
 
 export default function WorkloadTaskRow({
   task,
@@ -17,6 +19,8 @@ export default function WorkloadTaskRow({
     ? task.assignees.map((p) => p.name).join(', ')
     : 'Unassigned'
   const blocked = isTaskBlocked(task) && task.status !== 'done'
+  const showResetOption = hasSlaRule(task.title) && task.dueDateOverridden
+  const resetDueDate = resetTaskDueDateAction.bind(null, project.id, task.id)
 
   return (
     <Card padded className="flex items-center justify-between gap-4">
@@ -28,7 +32,15 @@ export default function WorkloadTaskRow({
           </Link>
           {' · '}{task.category}{' · '}{assigneeText}
           {task.dueDate ? ` · Due ${task.dueDate}${task.dueTime ? ` at ${formatDueTime(task.dueTime)}` : ''}` : ''}
+          {showResetOption ? ' · Manually set' : ''}
         </p>
+        {showResetOption && (
+          <form action={resetDueDate}>
+            <button type="submit" className="text-xs mt-0.5 hover:underline" style={{ color: 'var(--pine)' }}>
+              Reset to automatic (SLA-calculated)
+            </button>
+          </form>
+        )}
       </div>
       <div className="flex items-center gap-3 shrink-0">
         <SlaBadge status={slaStatus} />

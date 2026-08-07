@@ -1,6 +1,6 @@
 # Mirror Project Planner — Completion Checklist
 
-Derived directly from the "IP Tool Request One-Pager — Commercial Solar" (Kenny Courtney, OPS/Commercial). Every item below traces back to something the document actually asked for. When every item in **Sections A–F** is checked, the project satisfies everything the doc calls a requirement. Section G (nice-to-haves) is explicitly *not* required for "done" — the doc itself calls these things "that would be great but could wait."
+Derived directly from the "IP Tool Request One-Pager — Commercial Solar" (Kenny Courtney, OPS/Commercial). Every item below traces back to something the document actually asked for. When every item in **Sections A–F and H** is checked, the project satisfies everything the doc calls a requirement. Section G (nice-to-haves) is explicitly *not* required for "done" — the doc itself calls these things "that would be great but could wait."
 
 Status key: ✅ Done · ⚠️ Partial / built differently than literally worded · ❌ Not built
 
@@ -58,12 +58,20 @@ Status key: ✅ Done · ⚠️ Partial / built differently than literally worded
 - [x] ✅ Pulls from Salesforce — commercial projects only (`RecordType = PV-COM` or name ending in "COM"), contracts signed in the last 6 months, syncing every 15 minutes
 - [x] ✅ Writes back to Salesforce for the 3 overlapping fields (beyond what the doc technically asked for, but required to satisfy the "no two places" rule above)
 
+## H. Time Tracking (Section 6 cont., "Nice to have: cont.")
+
+- [ ] ❌ Employee list pulled from Gusto/company directory — still manual entry; this one's a nice-to-have (see Section G)
+- [x] ✅ Job title captured per employee (e.g. Installer, Electrician) — free text, editable from the People page
+- [x] ✅ OPS assigns employees to a project; hours can only be entered once assigned — enforced server-side via a new Project Team panel on each project's Time page, not just hidden in the UI
+- [x] ✅ Unlimited date entries per employee once assigned
+- [x] ✅ Running total per employee
+- [x] ✅ Project-level totals split into Install Hours and Electrical Hours
+
 ---
 
 ## G. Nice-to-Haves (Section 6 cont. + Whitney's notes) — *not required for "done"*
 
 - [ ] ⚠️ Granular lifecycle counters (days in engineering / to permit submittal / at jurisdiction / in construction / to final inspection / to PTO) — a simpler stage-based lifecycle tracker exists instead of these exact sub-milestones
-- [ ] ⚠️ Time tracking tab pulling employees from Gusto/company directory — time tracking exists, employee list is manual entry
 - [ ] ⚠️ Task reports by person / type / urgency / project — `/tasks` covers person, urgency, and project; not a distinct "by category type" report
 - [x] ✅ Contacts section — GC/EC/roofer/owner cards linked to a project, each with name/business/phone/email/notes
 
@@ -77,4 +85,4 @@ Status key: ✅ Done · ⚠️ Partial / built differently than literally worded
 
 ## Bottom Line
 
-Every **must-have** and every named **deliverable** in Sections A–F is now built and verified against real data. The three small gaps from the first pass (due times, per-entry photo upload, vendor invoicing) are closed. The one remaining item is not a build gap — it's a question only Kenny can answer: does task assignment already cover "schedule techs" in practice, or is a real scheduling calendar expected? That's the only thing standing between this checklist and fully done.
+Every **must-have** and every named **deliverable** in Sections A–H is now built and verified against real data. All five gaps found across two passes (due times, per-entry photo upload, vendor invoicing, employee job titles, project-team assignment gating) are closed. The one remaining item is not a build gap — it's a question only Kenny can answer: does task assignment already cover "schedule techs" in practice, or is a real scheduling calendar expected? That's the only thing standing between this checklist and fully done.
