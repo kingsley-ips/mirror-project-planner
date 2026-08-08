@@ -1,13 +1,11 @@
 import Link from 'next/link'
 import Header from '@/components/Header'
-import StageTracker from '@/components/StageTracker'
+import ProjectCard from '@/components/ProjectCard'
 import WorkloadTaskRow from '@/components/WorkloadTaskRow'
 import DashboardCustomizer from '@/components/DashboardCustomizer'
 import DashboardSectionHeader from '@/components/ui/DashboardSectionHeader'
 import { Card } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
-import { SlaBadge } from '@/components/ui/SlaStatus'
-import BudgetVarianceBadge from '@/components/ui/BudgetVarianceBadge'
 import { getActivePersonId } from '@/lib/activePerson'
 import {
   getAllProjectBudgets,
@@ -156,37 +154,25 @@ export default async function DashboardPage() {
 
         {enabledCards.has('projects') && (
           <div className="mb-8">
-            <DashboardSectionHeader cardKey="projects" title="All Projects" count={projects.length} />
+            <DashboardSectionHeader cardKey="projects" title="All Projects" count={projects.length} viewAllHref="/projects" />
             <div className="flex flex-col gap-4">
               {projects.map((project) => {
                 const projectTasks = tasksByProject[project.id] ?? []
                 const rollup = getProjectSlaStatus(projectTasks.map((t) => getSlaStatus(t, today)))
-                const openTasks = projectTasks.filter((t) => t.status !== 'done')
+                const openTaskCount = projectTasks.filter((t) => t.status !== 'done').length
 
                 const budget = budgetsByProject[project.id]
                 const expenses = expensesByProject[project.id] ?? []
                 const budgetSummary = budget ? summarizeBudget(budget, expenses) : null
-                const hasBudgetData = budgetSummary && (budgetSummary.totalSold > 0 || budgetSummary.totalActual > 0)
 
                 return (
-                  <Link key={project.id} href={`/projects/${project.id}`}>
-                    <Card className="hover:shadow-sm transition-shadow cursor-pointer">
-                      <div className="flex items-start justify-between gap-4 mb-3">
-                        <div>
-                          <h3 className="text-base font-semibold">{project.name}</h3>
-                          <p className="text-sm" style={{ color: 'var(--muted)' }}>{project.customerName}</p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {hasBudgetData && <BudgetVarianceBadge variance={budgetSummary.variance} />}
-                          <SlaBadge status={rollup} />
-                        </div>
-                      </div>
-                      <StageTracker currentStage={project.stage} />
-                      <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>
-                        {openTasks.length} open task{openTasks.length === 1 ? '' : 's'}
-                      </p>
-                    </Card>
-                  </Link>
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    slaStatus={rollup}
+                    openTaskCount={openTaskCount}
+                    budgetSummary={budgetSummary}
+                  />
                 )
               })}
               {projects.length === 0 && (
